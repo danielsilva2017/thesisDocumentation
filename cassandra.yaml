@@ -1,0 +1,193 @@
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: cassandra-rbac
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: "v1" 
+kind: Service
+metadata:
+  labels:
+    app: cassandra
+  name: cassandra
+spec:
+  clusterIP: None
+  ports:
+    - port: 9042
+  selector:
+    app: cassandra
+---
+apiVersion: "apps/v1" 
+kind: StatefulSet
+metadata:
+  name: cassandra
+  labels:
+     app: cassandra
+spec:
+  serviceName: cassandra
+  replicas: 4
+  selector:
+    matchLabels:
+      app: cassandra
+  template:
+    metadata:
+      labels:
+        app: cassandra
+    spec:
+      terminationGracePeriodSeconds: 1800
+      contentores:
+      - name: cassandra
+        image: cassandra
+        imagePullPolicy: Always
+        ports:
+        - contentorPort: 7000
+          name: intra-node
+        - contentorPort: 7001
+          name: tls-intra-node
+        - contentorPort: 7199
+          name: jmx
+        - contentorPort: 9042
+          name: cql
+        securityContext:
+          capabilities:
+            add:
+              - IPC_LOCK
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - nodetool drain
+        env:
+          - name: MAX_HEAP_SIZE
+            value: 4G
+          - name: HEAP_NEWSIZE
+            value: 1G
+          - name: CASSANDRA_SEEDS
+            value: "cassandra-0.cassandra.default.svc.cluster.local"
+          - name: CASSANDRA_CLUSTER_NAME
+            value: "K8Demo"
+          - name: CASSANDRA_DC
+            value: "DC1-K8Dem---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loadtest
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: load-test
+  labels:
+    name: load-test
+  namespace: loadtest
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        name: load-test
+    spec:
+      contentores:
+      - name: load-test
+        image: weaveworksdemos/load-test:0.1.1
+        command: ["/bin/sh"]
+        args: ["-c", "while true; do locust --host http://front-end.sock-shop.svc.cluster.local -f /config/locustfile.py --clients 4 --hatch-rate 4 --num-request 30 --no-web; done"]
+      nodeSelector:
+        beta.kubernetes.io/os: linux
+o"
+          - name: CASSANDRA_RACK
+            value: "Rack1-K8Demo"
+          - name: CASSANDRA_SEED_PROVIDER
+            value: io.k8s.cassandra.KubernetesSeedProvider
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - cat < /dev/null > /dev/tcp/${POD_IP}/9042
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 4
+            memory: "8Gi"
+          requests:
+            cpu: "0.5"
+            memory: "4Gi"
+      - name: worker
+        image: gettyimages/spark
+        command:
+        - bin/spark-class
+        - org.apache.spark.deploy.worker.Worker
+        - spark://master:7077
+        env:
+          - name: SPARK_WORKER_CORES
+            value: "1"
+          - name: SPARK_WORKER_MEMORY
+            value: 2g
+        resources:
+          limits:
+            cpu: 1
+            memory: "2Gi"
+          requests:
+            cpu: "500m"
+            memory: "500Mi"
+---
+apiVersion: "v1" 
+kind: Service
+metadata:
+  labels:
+    app: master
+  name: master
+spec:
+  clusterIP: None
+  ports:
+    - port: 7077
+  selector:
+    app: master
+---
+apiVersion: "apps/v1" 
+kind: Deployment
+metadata:
+  name: master
+  labels:
+     app: master
+spec:
+  selector:
+    matchLabels:
+      app: master
+  template:
+    metadata:
+      labels:
+        app: master
+    spec:
+      hostname: master
+      terminationGracePeriodSeconds: 1800
+      contentores:
+      - name: master
+        image: gettyimages/spark
+        env:
+          - name: MASTER
+            value: spark://master:7077
+          - name: SPARK_PUBLIC_DNS
+            value: master
+        resources:
+          limits:
+            cpu: 4
+            memory: "4Gi"
+          requests:
+            cpu: "0.5"
+            memory: "2Gi"
